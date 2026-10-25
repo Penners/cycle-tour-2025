@@ -1,0 +1,27 @@
+node_modules/
+.next/
+out/
+.vercel/
+next-env.d.ts
+*.tsbuildinfo
+.env*.local
+
+# Raw inputs stay local: drop your Strava exports into gpxdata/ and
+# original photos into photos/. Only the empty folders are tracked; the
+# generated, web-sized versions in src/data/ and public/photos/ are
+# committed.
+/gpxdata/*
+!/gpxdata/.gitkeep
+/photos/*
+!/photos/.gitkeep
+
+# Copied from node_modules on postinstall
+/public/maplibre/
+
+# Third-party exports (e.g. a friend's Instagram data) stay local
+/insta/
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+*.log
