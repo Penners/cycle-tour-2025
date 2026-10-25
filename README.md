@@ -2,7 +2,7 @@
 
 An interactive map and journal of a 2025 bike tour: day-by-day routes from Strava, overnight pins, geotagged photos, an elevation profile, historical weather, and train, ferry and flight legs drawn differently from the riding.
 
-Built on the framework from [cycle-tour-2026](https://github.com/Penners/cycle-tour-2026) and [cycle-trip-2024](https://github.com/Penners/cycle-trip-2024): Next.js (App Router), Leaflet and free, keyless basemaps.
+Built on the framework from [cycle-tour-2026](https://github.com/Penners/cycle-tour-2026) and [cycle-trip-2024](https://github.com/Penners/cycle-trip-2024): Next.js (App Router), Leaflet and free, keyless basemaps. The code in `scripts/` and `src/` is shared with the other tour sites, and every tour detail lives in [scripts/tour.config.mjs](scripts/tour.config.mjs), so improve the code in one repo and copy it across. `npm run framework:check` lists anything that has drifted.
 
 ## Run it
 
@@ -19,10 +19,11 @@ The site only needs what's committed: `src/data/tour.json`, `public/photos/`, `c
 2. **Photos:** copy phone photos into `photos/`. They're placed by EXIF GPS. Filenames can be Pixel `PXL_YYYYMMDD_HHMMSSmmm` (UTC) or `IMG_YYYYMMDD_HHMMSSmmm` (the camera's clock; see `CAMERA_CLOCK`). A photo without GPS is placed where the track was when it was taken.
 3. **Config:** fill in [scripts/tour.config.mjs](scripts/tour.config.mjs). Each field has an example there, and the 2024 and 2026 repos have complete ones.
    - `TOUR`: title, from → to, dates, riders, intro.
-   - `TIMEZONE_OFFSET_HOURS`: the local offset during the trip. Keep `TIME_ZONE` in [src/lib/format.ts](src/lib/format.ts) in step.
+   - `TIMEZONE_OFFSET_HOURS` and `TIME_ZONE`: the local offset during the trip, and the same zone by name for the site's clock times.
+   - `RECORDINGS`: `"strava"` for Strava exports (distance and climbing counted as Strava does), `"phone"` for patchy raw phone GPS (despiked and smoothed hard). `FILL_GAPS`: route the unrecorded stretches (below).
    - `stays`: one per night, with exact coordinates. A saved Google Maps list is a handy source.
    - `transfers`: trains (`from`/`to`, optional `via`), ferries (a hand-drawn `path`) and flights (`from`/`to`), each with approximate `depart`/`arrive` times.
-   - `dayTitles`: a title and subtitle per day. Days with rides but no entry get a plain date title.
+   - `dayTitles`: a title and subtitle per day, plus an optional `noRide` note for a day without riding. Days with rides but no entry get a plain date title.
 4. **Words:** write [content/journal.md](content/journal.md), one `### **Tuesday, 2 September 2025**` section per day, and photo captions in [content/captions.json](content/captions.json). Add `"hidden": true` to leave a photo out, or `"lat"`/`"lon"` to pin a photo whose GPS is wrong.
 5. **Build the data**, then run the site:
 

@@ -8,6 +8,8 @@ export type Segment =
       id: string;
       /** Getting to/from the tour: drawn, not counted. */
       offTour?: boolean;
+      /** The Strava activity, when the ride is exactly one. */
+      stravaId?: string;
       date: string;
       start: string;
       end: string;
@@ -24,8 +26,9 @@ export type Segment =
       /** Getting to/from the tour: drawn, not counted. */
       offTour?: boolean;
       date: string;
-      start: string;
-      end: string;
+      /** Approximate local times, when the config gives them. */
+      start?: string;
+      end?: string;
       name: string;
       note: string;
       km: number;
@@ -90,6 +93,8 @@ export type Day = {
   date: string;
   title: string;
   subtitle: string;
+  /** Shown in place of the elevation chart on a day without riding. */
+  noRide?: string;
   stats: {
     rideKm: number;
     trainKm: number;

@@ -9,9 +9,9 @@ export const fmtDuration = (s: number) => {
 export const fmtDate = (iso: string, opts: Intl.DateTimeFormatOptions = { weekday: "short", day: "numeric", month: "short" }) =>
   new Date(`${iso}T12:00:00Z`).toLocaleDateString("en-GB", { ...opts, timeZone: "UTC" });
 
-// Times are shown in the tour's local time. Keep in step with
-// TIMEZONE_OFFSET_HOURS in scripts/tour.config.mjs.
-export const TIME_ZONE = "Europe/Paris";
+// Times are shown in the tour's local time: TIME_ZONE in
+// scripts/tour.config.mjs, passed through by next.config.ts.
+export const TIME_ZONE = process.env.TOUR_TIME_ZONE;
 export const fmtTime = (iso: string) =>
   new Date(iso).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: TIME_ZONE });
 

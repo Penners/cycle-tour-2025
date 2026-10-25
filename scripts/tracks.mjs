@@ -1,21 +1,23 @@
-// Turns the patchy Google Health/Fit TCX exports into continuous rides.
+// Turns the recordings in gpxdata/ (Strava TCX/GPX, or patchy Google
+// Health/Fit TCX exports) into continuous rides.
 //
-// The phone often logged a fix only every few minutes, so a ride is a
-// mix of dense stretches and long straight "jumps" across fields, and
+// A phone recording often logged a fix only every few minutes, so a ride
+// is a mix of dense stretches and long straight "jumps" across fields, and
 // whole legs between recordings are missing. This module:
-//   1. parses every Biking activity and drops GPS spikes;
+//   1. parses every Biking activity (and drops GPS spikes from phone ones);
 //   2. finds runs of sparse fixes inside each ride ("jumps");
 //   3. finds the gaps *between* rides, stays and transfers on each day
 //      that must have been cycled ("bridges");
 //   4. routes both along real cycle paths with BRouter (cached in
 //      data/routes/ by fetch-routes.mjs) and marks those points `est`.
+// Steps 2–4 only run with FILL_GAPS set in tour.config.mjs.
 // Shared by fetch-routes.mjs (which fills the cache) and build-data.mjs
 // (which reads it and never touches the network).
 import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { XMLParser } from "fast-xml-parser";
-import { stays, transfers, TIMEZONE_OFFSET_HOURS } from "./tour.config.mjs";
+import { stays, transfers, RECORDINGS, FILL_GAPS, TIMEZONE_OFFSET_HOURS } from "./tour.config.mjs";
 
 const GPX_DIR = path.resolve("gpxdata");
 export const ROUTE_DIR = path.resolve("data/routes");
@@ -44,6 +46,9 @@ export const stayOn = (date) =>
     const n = Math.round((new Date(date) - new Date(s.night)) / 86400e3);
     return n >= 0 && n < (s.nights ?? 1);
   });
+
+/** A transfer with depart/arrive times (untimed ones are placed by position instead). */
+export const isTimed = (t) => t.depart != null && t.arrive != null;
 
 /** "HH:MM" local time on a date as epoch ms; "HH:MM+1" means the next day (overnight ferries). */
 export const atLocal = (date, time) => {
@@ -84,6 +89,8 @@ function readActivities(file) {
         lat: +tp.Position.LatitudeDegrees,
         lon: +tp.Position.LongitudeDegrees,
         alt: tp.AltitudeMeters != null ? +tp.AltitudeMeters : null,
+        // Strava's own odometer reading (Google's exports have none).
+        dist: tp.DistanceMeters != null ? +tp.DistanceMeters : null,
         est: false,
       })),
   }));
@@ -92,10 +99,17 @@ function readActivities(file) {
 function parseRecordings({ sports = ["Biking"] } = {}) {
   const out = [];
   for (const file of fs.readdirSync(GPX_DIR).filter((f) => /.(tcx|gpx)$/i.test(f)).sort()) {
-    for (const { sport, pts } of readActivities(file)) {
-      if (!sports.includes(sport) || !pts.length) continue;
-      out.push({ sport, id: `ride-${new Date(pts[0].t).toISOString().slice(0, 16).replace(/[-:]/g, "")}`, pts: altDespike(despike(pts)) });
-    }
+    // strava_<activity id>.tcx/.gpx, as Strava's bulk export names them.
+    const stravaId = file.match(/^strava_(\d+)/)?.[1] ?? null;
+    readActivities(file).forEach(({ sport, pts }, k) => {
+      if (!sports.includes(sport) || !pts.length) return;
+      // `rec` ties each point to its recording, so its odometer is only
+      // read against points from the same one.
+      for (const p of pts) p.rec = `${file}#${k}`;
+      // Strava's 1-second recordings are already clean; spike removal is
+      // for sparse phone fixes (and would eat real points at speed).
+      out.push({ sport, stravaId, id: `ride-${new Date(pts[0].t).toISOString().slice(0, 16).replace(/[-:]/g, "")}`, pts: RECORDINGS === "phone" ? altDespike(despike(pts)) : pts });
+    });
   }
   return out.sort((a, b) => a.pts[0].t - b.pts[0].t);
 }
@@ -153,15 +167,15 @@ function jumpRuns(pts) {
  * after arrival, so the crossing isn't routed as riding.
  */
 function splitAtTransfers(rides) {
-  for (const t of transfers) {
+  for (const t of transfers.filter(isTimed)) {
     const [t0, t1] = [atLocal(t.date, t.depart), atLocal(t.date, t.arrive)];
     rides = rides.flatMap((r) => {
       if (r.pts[0].t >= t1 || r.pts.at(-1).t <= t0) return [r];
       const before = r.pts.filter((p) => p.t <= t0);
       const after = r.pts.filter((p) => p.t >= t1);
       return [
-        ...(before.length ? [{ id: r.id, pts: before }] : []),
-        ...(after.length ? [{ id: `${r.id}b`, pts: after }] : []),
+        ...(before.length ? [{ ...r, pts: before }] : []),
+        ...(after.length ? [{ ...r, id: `${r.id}b`, pts: after }] : []),
       ];
     });
   }
@@ -170,6 +184,13 @@ function splitAtTransfers(rides) {
 
 function plan() {
   const rides = splitAtTransfers(parseRecordings());
+  // Complete recordings (e.g. Strava): nothing to route.
+  if (!FILL_GAPS) {
+    for (const r of rides) r.runs = [];
+    return { rides, bridges: [], warnings: [], requests: [] };
+  }
+  const untimed = transfers.filter((t) => !isTimed(t));
+  if (untimed.length) throw new Error(`FILL_GAPS needs depart/arrive times on every transfer: ${untimed.map((t) => t.id).join(", ")}`);
   const dates = [...new Set([...rides.map((r) => localDate(r.pts[0].t)), ...transfers.map((t) => t.date)])].sort();
   const bridges = [];
   const warnings = [];
@@ -256,7 +277,7 @@ export function buildTracks() {
     // The sparse fixes themselves are real, but the line into and out of
     // them is a guess, so they belong to the estimated stretch.
     for (const [i, j] of r.runs) for (let k = i + 1; k < j; k++) r.pts[k].est = true;
-    return { id: r.id, date: localDate(r.pts[0].t), bridge: false, pts };
+    return { id: r.id, stravaId: r.stravaId, date: localDate(r.pts[0].t), bridge: false, pts };
   });
 
   for (const b of bridges) {

@@ -5,12 +5,16 @@
 // A photo with no GPS (location off in the camera app) is placed where
 // the track was when it was taken: recorded
 // rides and walks, or the estimated route between them.
+//
+// Photos from anywhere else (say a friend's Instagram stories) can be
+// added by an optional per-tour scripts/extra-photos.mjs: see 2024's.
 import fs from "node:fs";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 import exifr from "exifr";
 import sharp from "sharp";
 import { CAMERA_CLOCK, TIMEZONE_OFFSET_HOURS, transfers } from "./tour.config.mjs";
-import { photoFixes, haversine, atLocal } from "./tracks.mjs";
+import { photoFixes, haversine, atLocal, isTimed } from "./tracks.mjs";
 
 const SRC = path.resolve("photos");
 const OUT = path.resolve("public/photos");
@@ -38,7 +42,7 @@ const fixes = photoFixes();
 
 // Taken on a train or ferry (out of signal at sea, say)? Place it along
 // that leg's line, assuming steady progress from departure to arrival.
-const legs = transfers.map((t) => {
+const legs = transfers.filter(isTimed).map((t) => {
   const rail = path.resolve(`data/rail/${t.id}.json`);
   const coords = t.path ?? (fs.existsSync(rail) ? JSON.parse(fs.readFileSync(rail, "utf8")).coords : [t.from, t.to]);
   return { t0: atLocal(t.date, t.depart), t1: atLocal(t.date, t.arrive), coords };
@@ -126,6 +130,11 @@ for (const file of files) {
   });
   process.stdout.write(".");
 }
+
+// Its default export gets { captions, OUT } and returns more entries
+// for data/photos.json, having written their WebPs to OUT itself.
+const EXTRA = path.resolve("scripts/extra-photos.mjs");
+if (fs.existsSync(EXTRA)) photos.push(...(await (await import(pathToFileURL(EXTRA).href)).default({ captions, OUT })));
 
 photos.sort((a, b) => a.takenAt.localeCompare(b.takenAt));
 

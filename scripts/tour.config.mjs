@@ -15,9 +15,20 @@ export const TOUR = {
 };
 
 // Local offset from UTC during the trip: dates are grouped and times shown
-// in this zone (French time; the UK legs show in French time too). Keep
-// TIME_ZONE in src/lib/format.ts in step with it.
+// in this zone (French time; the UK legs show in French time too).
 export const TIMEZONE_OFFSET_HOURS = 2; // CEST
+export const TIME_ZONE = "Europe/Paris"; // the same zone, for the site's clock times
+
+// How the rides were recorded. "strava": Strava's own recordings, whose
+// distance and altitude are already clean, so they're counted the way
+// Strava counts them. "phone": raw phone GPS (Google Fit/Health exports),
+// whose altitude is despiked and smoothed hard before climbing is counted.
+export const RECORDINGS = "strava";
+
+// Route the unrecorded stretches (sparse jumps inside rides, and riding
+// between rides, stays and transfers) with BRouter: `npm run data:routes`.
+// Needs depart/arrive times on every transfer.
+export const FILL_GAPS = true;
 
 // Only for photos named by the camera's own clock (IMG_…). The Pixel's
 // PXL_… names are UTC, so this trip needs nothing here.

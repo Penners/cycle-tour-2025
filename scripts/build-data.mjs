@@ -1,12 +1,12 @@
-// Builds src/data/tour.json from the Google Health TCX exports (repaired
-// by tracks.mjs), cached bike and rail routes and photo metadata. Run
-// `npm run data:routes`, `npm run data:rail` and `npm run data:photos`
-// first (their outputs are committed, so this only needs re-running when
-// the raw data or tour.config.mjs changes).
+// Builds src/data/tour.json from the recordings in gpxdata/ (repaired by
+// tracks.mjs), cached bike and rail routes and photo metadata. Run
+// `npm run data:routes` (with FILL_GAPS), `npm run data:rail` and
+// `npm run data:photos` first (their outputs are committed, so this only
+// needs re-running when the raw data or tour.config.mjs changes).
 import fs from "node:fs";
 import path from "node:path";
-import { TOUR, stays, transfers, dayTitles, isOffTour, TIMEZONE_OFFSET_HOURS } from "./tour.config.mjs";
-import { buildTracks, haversine, rawRecordings, localDate as localDay, atLocal as atLocalMs, stayOn } from "./tracks.mjs";
+import { TOUR, stays, transfers, dayTitles, isOffTour, RECORDINGS, FILL_GAPS, TIMEZONE_OFFSET_HOURS } from "./tour.config.mjs";
+import { buildTracks, haversine, rawRecordings, localDate as localDay, atLocal as atLocalMs, stayOn, isTimed } from "./tracks.mjs";
 import { loadWeather, dayWeather } from "./weather.mjs";
 
 const OUT = path.resolve("src/data/tour.json");
@@ -53,8 +53,9 @@ const round = (n, dp) => +n.toFixed(dp);
 const atLocal = (date, time) => new Date(atLocalMs(date, time)).toISOString();
 
 // Resample to fixed distance steps, smoothing altitude over a window so
-// GPS noise doesn't inflate climbing.
-function profileFor(pts, stepM = 100, smoothM = 300) {
+// GPS noise doesn't inflate climbing. Strava's altitude is already smooth,
+// so it gets a narrower window.
+function profileFor(pts, stepM = 100, smoothM = RECORDINGS === "strava" ? 100 : 300) {
   const total = pts[pts.length - 1].d;
   const out = [];
   let j = 0, lo = 0, hi = 0, sum = 0, n = 0;
@@ -67,14 +68,28 @@ function profileFor(pts, stepM = 100, smoothM = 300) {
     while (lo < hi && pts[lo].d < x - smoothM / 2) { if (pts[lo].alt != null) { sum -= pts[lo].alt; n--; } lo++; }
     const p = pts[j];
     if (n) last = sum / n;
+    // A Strava window with no fix in it (fast, or a tunnel) takes the fix before.
+    else if (RECORDINGS === "strava" && p.alt != null) last = p.alt;
     out.push([x / 1000, last, p.lat, p.lon]);
   }
   return out;
 }
 
-// Phone GPS altitude is noisy (unlike Strava's smoothed stream), so climb
-// is counted on the smoothed profile and only once a rise/fall passes 3 m.
-function climbing(profile) {
+// Strava's altitude stream is already smooth (0.1 m steps), so a plain
+// sum of rises/falls on the raw points matches what Strava reports.
+function stravaClimbing(pts) {
+  let gain = 0, loss = 0;
+  for (let i = 1; i < pts.length; i++) {
+    if (pts[i].alt == null || pts[i - 1].alt == null) continue;
+    const d = pts[i].alt - pts[i - 1].alt;
+    if (d > 0) gain += d; else loss -= d;
+  }
+  return { gain: Math.round(gain), loss: Math.round(loss) };
+}
+
+// Phone GPS altitude is noisy, so climb is counted on the smoothed
+// profile and only once a rise/fall passes 3 m.
+function phoneClimbing(profile) {
   let gain = 0, loss = 0, ref = profile[0]?.[1] ?? 0;
   for (const [, e] of profile) {
     if (e - ref > 3) { gain += e - ref; ref = e; }
@@ -101,7 +116,8 @@ function movingSeconds(pts) {
 // ---------- rides ----------
 // Recorded stretches and the routed fill-ins between them are joined into
 // one continuous ride for each run of riding between trains and ferries.
-const transferWindows = transfers.map((t) => [Date.parse(atLocal(t.date, t.depart)), Date.parse(atLocal(t.date, t.arrive))]);
+// Without FILL_GAPS each recording is a ride of its own, as on Strava.
+const transferWindows = transfers.filter(isTimed).map((t) => [Date.parse(atLocal(t.date, t.depart)), Date.parse(atLocal(t.date, t.arrive))]);
 const tracks = buildTracks();
 const merged = [];
 for (const track of tracks) {
@@ -109,30 +125,49 @@ for (const track of tracks) {
   const prevEnd = last?.pts.at(-1).t;
   const nextStart = track.pts[0].t;
   const transferBetween = transferWindows.some(([t0]) => t0 >= prevEnd && t0 <= nextStart);
-  if (last && last.date === track.date && !transferBetween) last.pts.push(...track.pts);
-  else merged.push({ date: track.date, pts: [...track.pts] });
+  if (FILL_GAPS && last && last.date === track.date && !transferBetween) last.tracks.push(track), last.pts.push(...track.pts);
+  else merged.push({ date: track.date, tracks: [track], pts: [...track.pts] });
 }
 
+// Distance along the ride: Strava's own odometer within a recording
+// (which starts a few metres before the first fix), straight lines
+// between fixes everywhere else.
+function measure(pts) {
+  const odometer = (p) => RECORDINGS === "strava" && p.dist != null;
+  let d = odometer(pts[0]) ? pts[0].dist : 0;
+  // `shift` turns this recording's odometer reading into distance along the ride.
+  let from = pts[0], shift = d - (from.dist ?? 0);
+  pts.forEach((p, i) => {
+    const q = pts[i - 1];
+    if (odometer(p) && odometer(from) && from.rec === p.rec) d = p.dist + shift;
+    else if (i) {
+      d += haversine([q.lat, q.lon], [p.lat, p.lon]);
+      [from, shift] = [p, d - (p.dist ?? 0)];
+    }
+    p.d = d;
+  });
+  return d;
+}
 
 const rides = merged.map((track, n) => {
   const pts = track.pts;
-  let d = 0;
-  pts.forEach((p, i) => {
-    if (i) d += haversine([pts[i - 1].lat, pts[i - 1].lon], [p.lat, p.lon]);
-    p.d = d;
-  });
+  const d = measure(pts);
   const profile = profileFor(pts);
+  // Link back to the Strava activity when the ride is exactly one.
+  const ids = [...new Set(track.tracks.filter((t) => !t.bridge).map((t) => t.stravaId))];
+  const stravaId = ids.length === 1 ? ids[0] : null;
   return {
     kind: "ride",
     ...(isOffTour(pts) ? { offTour: true } : {}),
-    id: `ride-${track.date}-${merged.filter((m, i) => m.date === track.date && i < n).length + 1}`,
+    id: stravaId ? `ride-${stravaId}` : `ride-${track.date}-${merged.filter((m, i) => m.date === track.date && i < n).length + 1}`,
+    ...(stravaId ? { stravaId } : {}),
     date: track.date,
     start: new Date(pts[0].t).toISOString(),
     end: new Date(pts[pts.length - 1].t).toISOString(),
     km: round(d / 1000, 1),
     movingSeconds: movingSeconds(pts),
     elapsedSeconds: Math.round((pts[pts.length - 1].t - pts[0].t) / 1000),
-    ...climbing(profile),
+    ...(RECORDINGS === "strava" ? stravaClimbing(pts) : phoneClimbing(profile)),
     coords: simplify(pts.map((p) => [p.lat, p.lon]), 6).map(([a, b]) => [round(a, 5), round(b, 5)]),
     profile: profile.map(([k, e, la, lo]) => [round(k, 2), round(e, 1), round(la, 5), round(lo, 5)]),
   };
@@ -173,7 +208,8 @@ const transferSegs = transfers.map((t) => {
     coords = t.path;
     km = round(pathLength(coords) / 1000, 1);
   }
-  return { kind: t.mode, id: t.id, ...(t.offTour ? { offTour: true } : {}), date: t.date, start: atLocal(t.date, t.depart), end: atLocal(t.date, t.arrive), name: t.name, note: t.note, km, coords };
+  const times = isTimed(t) ? { start: atLocal(t.date, t.depart), end: atLocal(t.date, t.arrive) } : {};
+  return { kind: t.mode, id: t.id, ...(t.offTour ? { offTour: true } : {}), date: t.date, ...times, name: t.name, note: t.note, km, coords };
 });
 
 // ---------- photos ----------
@@ -226,8 +262,21 @@ const days = allDates.map((date, i) => {
   // Stats count only the tour itself, not getting to and from it.
   const dayRides = allRides.filter((r) => !r.offTour);
   const dayTransfers = allTransfers.filter((t) => !t.offTour);
-  // Every leg is timestamped (transfers approximately), so just sort.
-  const segments = [...allRides, ...allTransfers].sort((a, b) => a.start.localeCompare(b.start));
+  // Legs with times (transfers approximately) are just sorted.
+  const segments = [...allRides, ...allTransfers.filter((t) => t.start)].sort((a, b) => a.start.localeCompare(b.start));
+  // A transfer without times goes in after the leg that ends nearest its
+  // start (a flight goes first).
+  for (const t of allTransfers.filter((t) => !t.start)) {
+    let at = segments.length;
+    let best = Infinity;
+    segments.forEach((s, idx) => {
+      const d = haversine(s.coords[s.coords.length - 1], t.coords[0]);
+      if (d < best) { best = d; at = idx + 1; }
+    });
+    if (best > 5000) at = segments.length;
+    if (t.kind === "flight") at = 0;
+    segments.splice(at, 0, t);
+  }
 
   // Day elevation profile: rides end-to-end; transfers occupy their
   // distance on the x-axis but carry no elevation.

@@ -62,7 +62,7 @@
 ### **Saturday, 6 September 2025**
 * **Route:** Saint-Jacut-de-la-Mer ➔ Matignon ➔ Plurien ➔ Pléneuf ➔ Morieux ➔ Viaduc des Ponts-Neufs ➔ Saint-Brieuc (68 km)
 * **Weather:** The warmest day: about **25°C**, dry, with a south-easterly behind us. A mild night, about **16°C**.
-* **Log:** The hilliest day so far (about 470 m of climbing) along the Côte d'Émeraude. We crossed the old Viaduc des Ponts-Neufs on the cycle path in the afternoon and reached Saint-Brieuc around 5 PM, then went into town for a beer in the evening.
+* **Log:** The hilliest day of the trip (about 800 m of climbing) along the Côte d'Émeraude. We crossed the old Viaduc des Ponts-Neufs on the cycle path in the afternoon and reached Saint-Brieuc around 5 PM, then went into town for a beer in the evening.
 * **Overnight:** Camping des Vallées (Saint-Brieuc).
 
 ---
@@ -70,7 +70,7 @@
 ### **Sunday, 7 September 2025**
 * **Route:** Saint-Brieuc ➔ Pordic ➔ Saint-Quay-Portrieux ➔ Plouha ➔ Beauport ➔ Paimpol (49 km)
 * **Weather:** Grey and showery (9 mm) but warm, about **23°C**, with a gusty southerly mostly behind us.
-* **Log:** North up the Goëlo coast, with the trip's highest point (about 120 m) on the way. We passed the pond at Beauport into Paimpol, arriving around 2:30 PM.
+* **Log:** North up the Goëlo coast, with the trip's highest point (about 127 m) on the way. We passed the pond at Beauport into Paimpol, arriving around 2:30 PM.
 * **Overnight:** Accueil Camping (Paimpol).
 
 ---
